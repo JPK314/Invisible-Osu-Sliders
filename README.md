@@ -9,7 +9,7 @@ The code for accurately determining slider shapes is copied from the GitHub osu-
 
 Thanks to Karoo for helping me understand how slider distortion works!
 
-If you'd like an exe instead, you can download it here: https://drive.google.com/file/d/1uOcmX9e02YTVDzl9A3SVSTjMMzBsvObX/view?usp=sharing
+If you'd like an exe instead, you can download it here: https://drive.google.com/file/d/1EWGJNUaMMMb_-Uxuozy9Ys7Z84PqZmVE/view?usp=sharing
 
 # Known Bugs
 No known bugs at this time.
