@@ -1,7 +1,9 @@
 import numpy
-import bezier
 import os
 import re
+from src.PathControlPoint import PathControlPoint
+from src.SliderPath import SliderPath
+
 def main():
     
     for file in os.listdir("."):
@@ -74,12 +76,7 @@ def main():
                     
                     # The value passed to bpm isn't actually just the bpm - it's the bpm times the current sv multiplier, or what the bpm would have to be if the sv multiplier were 1  at that point.
                     # The way I'm getting this is very ugly but it does work
-                    if (sliderType == "B" or (sliderType == "P" and len(poslist) != 2)):
-                        sliders.append(processBslider(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] <= time)[0][-1]][1], gsv, xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest))
-                    elif sliderType == "P":
-                        sliders.append(processPslider(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] <= time)[0][-1]][1], gsv, xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest))
-                    elif sliderType == "L":
-                        sliders.append(processPslider(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] <= time)[0][-1]][1], gsv, xpos, ypos, time, objtype, hitSound, [item for item in poslist for i in range(2)], slides, length, rest))
+                    sliders.append(processSlider(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] <= time)[0][-1]][1], gsv, xpos, ypos, time, objtype, hitSound, sliderType, poslist, slides, length, rest))
                         
                         
             
@@ -175,142 +172,39 @@ def main():
                     
             FDW.close()
             FD.close()
-    
-def processBslider(bpm, gsv, xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest):
-    bezlist = [[[],[]]]
-    curbez = 0
-    totlen = 0
-    curves = []
-    timethroughbez = []
-    bezlist[curbez][0].append(xpos)
-    bezlist[curbez][1].append(ypos)
-    xpoints = []
-    ypoints = []
-    newposlist = []
-
-    while (poslist[0][0] == xpos and poslist[0][1] == ypos):
-        poslist.pop(0)
-    
-    if (len(poslist) == 0):
-        return (xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest, 0)
-    
-    for pos in poslist:
-        if (bezlist[curbez][0][-1] == pos[0] and bezlist[curbez][1][-1] == pos[1]):
-            curbez = curbez+1
-            bezlist.append([[pos[0]], [pos[1]]])
+            
+def processSlider(bpm, gsv, xpos, ypos, time, objtype, hitSound, sliderType, poslist, slides, length, rest):
+    if sliderType == "L":
+        pathtype = PathControlPoint.LINEAR
+    elif sliderType == "P":
+        pathtype = PathControlPoint.PERFECT
+    else:
+        pathtype = PathControlPoint.BEZIER
+        
+    # Convert poslist to list of PathControlPoints
+    ControlPoints = [PathControlPoint(numpy.array((xpos,ypos), dtype='int64'), pathtype)]
+    for i in range(0,len(poslist)):
+        if i<len(poslist)-1 and poslist[i] == poslist[i+1]:
+            continue
+        elif i>0 and poslist[i-1] == poslist[i]:
+            # We have a new segment starting here
+            ControlPoints.append(PathControlPoint(numpy.array(poslist[i], dtype='int64'), pathtype))
         else:
-            bezlist[curbez][0].append(pos[0])
-            bezlist[curbez][1].append(pos[1])
-    
-    for i in range(0,curbez+1):
-        curves.append(bezier.Curve.from_nodes(numpy.asfortranarray(bezlist[i])))
-        totlen = totlen + curves[-1].length
+            ControlPoints.append(PathControlPoint(numpy.array(poslist[i], dtype='int64'), None))
         
-    tlen = round(1000*length/(5/3*bpm*gsv))
-    timethroughbez.append(0)
-    for i in range(0,curbez+1):
-        timethroughbez.append(timethroughbez[-1]+curves[i].length/totlen*tlen)
+    sliderpath = SliderPath(ControlPoints, length)
     
-    curbez = 0
-    
-    for i in range(0, tlen):
-        while (i >= timethroughbez[curbez]):
-            curbez = curbez+1
-
-        xpoints.append(round(curves[curbez-1].evaluate((i-timethroughbez[curbez-1])/(timethroughbez[curbez]-timethroughbez[curbez-1]))[0][0]))
-        ypoints.append(round(curves[curbez-1].evaluate((i-timethroughbez[curbez-1])/(timethroughbez[curbez]-timethroughbez[curbez-1]))[1][0]))
-        
-    framedist = 2*67141632+2*33587200+xpos+ypos-xpoints[0]-ypoints[0]
-    snaptol = 50000;
-    
-    newposlist.append((4196352+xpos, ypos))
-    newposlist.append((4196352+xpos, 2099200+ypos))
-    newposlist.append((8392704+xpos, 2099200+ypos))
-    newposlist.append((8392704+xpos, 4198400+ypos))
-    newposlist.append((16785408+xpos, 4198400+ypos))
-    newposlist.append((16785408+xpos, 8396800+ypos))
-    newposlist.append((33570816+xpos, 8396800+ypos))
-    newposlist.append((33570816+xpos, 16793600+ypos))
-    newposlist.append((67141632+xpos, 16793600+ypos))
-    newposlist.append((67141632+xpos, 33587200+ypos+snaptol))
-    newposlist.append((67141632+xpos, ypoints[0]))
-    newposlist.append((xpoints[0], ypoints[0]))
-    curlen = framedist+2*snaptol;
-    
-    for t in range(1,tlen):
-        newposlist.append((67141632+xpos, ypoints[t-1]))
-        newposlist.append((67141632+xpos, round(33587200+0.5*(ypos-xpos+xpoints[t-1]+xpoints[t]+ypoints[t-1]+ypoints[t]-xpoints[0]-ypoints[0]))))
-        if ((ypos-xpos+xpoints[t-1]+xpoints[t]+ypoints[t-1]+ypoints[t]-xpoints[0]-ypoints[0]) % 2 == 1):
-            curlen = curlen+1
-        
-        # This adds and subtracts a bunch of things to cancel everything
-        # out (sometimes the rounding will add an extra pixel) and make
-        # sure the length the slider travels to get to each pixel we want
-        # the sliderball to appear on stays the same.
-        
-        newposlist.append((67141632+xpos, ypoints[t]))
-        newposlist.append((xpoints[t], ypoints[t]))
-        curlen = curlen + framedist
-    
-    # Fixes some rendering issues by making the last segment of length 0
-    newposlist.append(newposlist[-1])
-    newposlist.append(newposlist[-1])
-    
-    return (xpos, ypos, time, objtype, hitSound, newposlist, slides, curlen, rest, 5/3*gsv*60/framedist)
-
-def processPslider(bpm, gsv, xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest):
-    
-    a = numpy.array([xpos, ypos], dtype='int64')
-    b = numpy.array(poslist[0], dtype='int64')
-    c = numpy.array(poslist[1], dtype='int64')
-    
-    aSq = numpy.dot(b-c,b-c)
-    bSq = numpy.dot(a-c,a-c)
-    cSq = numpy.dot(a-b,a-b)
-    
-    if (numpy.isclose(aSq, 0) or numpy.isclose(bSq, 0) or numpy.isclose(cSq, 0)):
-        return processBslider(bpm, gsv, xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest)
-    
-    s = aSq*(bSq+cSq-aSq)
-    t = bSq*(aSq+cSq-bSq)
-    u = cSq*(aSq+bSq-cSq)
-    
-    sumvar = s+t+u
-    
-    if (numpy.isclose(sumvar, 0)):
-        return processBslider(bpm, gsv, xpos, ypos, time, objtype, hitSound, poslist, slides, length, rest)
-    
-    centre = (s*a+t*b+u*c)/sumvar
-    dA = a-centre
-    dC = c-centre
-    
-    r = numpy.linalg.norm(dA)
-    
-    thetaStart = numpy.arctan2(dA[1], dA[0])
-    thetaEnd = numpy.arctan2(dC[1], dC[0])
-    while (thetaEnd < thetaStart):
-        thetaEnd = thetaEnd + 2*numpy.pi
-        
-    dirvar = 1
-    thetaRange = thetaEnd-thetaStart
-    
-    orthoAtoC = c-a
-    orthoAtoC = numpy.array([orthoAtoC[1], -1*orthoAtoC[0]])
-    
-    if (numpy.dot(orthoAtoC, b-a) < 0):
-        dirvar = -1*dirvar
-        thetaRange = 2*numpy.pi-thetaRange
-        
     xpoints = []
     ypoints = []
-    newposlist = []
-    
     tlen = round(1000*length/(5/3*bpm*gsv))
     
-    for i in range(0, tlen):
-        xpoints.append(round(centre[0]+r*numpy.cos(thetaStart+dirvar*(i/(tlen-1))*thetaRange)))
-        ypoints.append(round(centre[1]+r*numpy.sin(thetaStart+dirvar*(i/(tlen-1))*thetaRange)))
-        
+    for i in range(0, tlen+1):
+        pt = sliderpath.PositionAt(i/tlen)
+        xpoints.append(pt[0])
+        ypoints.append(pt[1])
+    
+    # Define newposlist
+    newposlist = []
     framedist = 2*67141632+2*33587200+xpos+ypos-xpoints[0]-ypoints[0]
     snaptol = 50000;
     
@@ -327,7 +221,6 @@ def processPslider(bpm, gsv, xpos, ypos, time, objtype, hitSound, poslist, slide
     newposlist.append((67141632+xpos, ypoints[0]))
     newposlist.append((xpoints[0], ypoints[0]))
     curlen = framedist+2*snaptol;
-    
     for t in range(1,tlen):
         newposlist.append((67141632+xpos, ypoints[t-1]))
         newposlist.append((67141632+xpos, round(33587200+0.5*(ypos-xpos+xpoints[t-1]+xpoints[t]+ypoints[t-1]+ypoints[t]-xpoints[0]-ypoints[0]))))
@@ -342,11 +235,11 @@ def processPslider(bpm, gsv, xpos, ypos, time, objtype, hitSound, poslist, slide
         newposlist.append((67141632+xpos, ypoints[t]))
         newposlist.append((xpoints[t], ypoints[t]))
         curlen = curlen + framedist
-        
+    
     # Fixes some rendering issues by making the last segment of length 0
     newposlist.append(newposlist[-1])
     newposlist.append(newposlist[-1])
-    
+        
     return (xpos, ypos, time, objtype, hitSound, newposlist, slides, curlen, rest, 5/3*gsv*60/framedist)
 
 if __name__=="__main__": main()
