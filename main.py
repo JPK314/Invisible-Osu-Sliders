@@ -72,9 +72,11 @@ def main():
                         pos = (int(match2.group(1)), int(match2.group(2)))
                         poslist.append(pos)
                     
-                    # The value passed to bpm isn't actually just the bpm - it's the bpm times the current sv multiplier, or what the bpm would have to be if the sv multiplier were 1  at that point.
-                    # The way I'm getting this is very ugly but it does work
-                    sliders.append(processSlider(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] <= time)[0][-1]][1], gsv, xpos, ypos, time, objtype, hitSound, sliderType, poslist, slides, length, rest))
+                    # If a slider is already distorted somehow, we should not modify it.
+                    if not distorted(poslist):
+                        # The value passed to bpm isn't actually just the bpm - it's the bpm times the current sv multiplier, or what the bpm would have to be if the sv multiplier were 1  at that point.
+                        # The way I'm getting this is very ugly but it does work
+                        sliders.append(processSlider(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] <= time)[0][-1]][1], gsv, xpos, ypos, time, objtype, hitSound, sliderType, poslist, slides, length, rest))
                         
                         
             
@@ -271,5 +273,14 @@ def processSlider(bpm, gsv, xpos, ypos, time, objtype, hitSound, sliderType, pos
     newposlist.append(newposlist[-1])
         
     return (xpos, ypos, time, objtype, hitSound, newposlist, slides, curlen, rest, 5/3*gsv*60/framedist)
+
+def distorted(poslist):
+    minx = min(pos[0] for pos in poslist)
+    maxx = max(pos[0] for pos in poslist)
+    miny = min(pos[1] for pos in poslist)
+    maxy = max(pos[1] for pos in poslist)
+    # 2^14 is an experimentally found constant. Distortion is undefined behavior in OpenGL
+    return maxx-minx > 2**14 or maxy-miny > 2**14
+    
 
 if __name__=="__main__": main()
