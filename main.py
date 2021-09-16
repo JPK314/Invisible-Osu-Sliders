@@ -3,6 +3,7 @@ import os
 import re
 from src.PathControlPoint import PathControlPoint
 from src.SliderPath import SliderPath
+from sympy.functions.elementary.integers import ceiling
 
 def main():
     
@@ -28,25 +29,22 @@ def main():
                 exit()
             
             # Making a list of bpm*sv points
-            pastTPts = False
-            pastClrs = False
+            insideTPts = False
             bpmpts = []
             curbpm = 0
             for line in lines:
-                match = re.search(r"^\[TimingPoints\]$", line)
-                if match:
-                    pastTPts = True
-                match = re.search(r"^\[Colours\]$", line)
-                if match:
-                    pastClrs = True
+                if line == "[TimingPoints]\n":
+                    insideTPts = True
+                if insideTPts and line == "\n":
+                    insideTPts = False
                 
-                match = re.search(r"^(\d+),(\d+(\.\d+)?),\d+,\d+,\d+,\d+,1", line)
-                if match and pastTPts and not pastClrs:
+                match = re.search(r"^(\d+),(\d+(\.\d+)?(E(\+|-)\d+)?),(\d+),(\d+),(\d+),(\d+),1,", line)
+                if match and insideTPts:
                     curbpm = float(60000/float(match.group(2)))
                     bpmpts.append((int(match.group(1)), curbpm))
                 
-                match = re.search(r"^(\d+),(-?\d+(\.\d+)?),\d+,\d+,\d+,\d+,0", line)
-                if match and pastTPts and not pastClrs:
+                match = re.search(r"^(\d+),(-?\d+(\.\d+)?(E(\+|-)\d+)?),\d+,\d+,\d+,\d+,0", line)
+                if match and insideTPts:
                     bpmpts.append((int(match.group(1)), float(-100*curbpm/float(match.group(2)))))
                     
             # Searching for sliders with no reverses (slides=1)
@@ -81,75 +79,88 @@ def main():
                         
             
             # Making new .osu file
-            pastTPts = False
-            pastClrs = False
+            insideTPts = False
             unchangedline = True
             prevtimingpoint = (-1, -1, -1, -1, -1, -1, -1)
             for line in lines:
                 unchangedline = True
-                match = re.search(r"^\[TimingPoints\]$", line)
-                if match:
-                    pastTPts = True
-                match = re.search(r"^\[Colours\]$", line)
-                if match:
-                    pastClrs = True
+                if line == "[TimingPoints]\n":
+                    insideTPts = True
+                if insideTPts and line == "\n":
+                    insideTPts = False
                     
-                
-                # Uninherited timing point matching
-                match = re.search(r"^(\d+),(\d+(\.\d+)?),(\d+),(\d+),(\d+),(\d+),1,", line)
-                if match and pastTPts and not pastClrs:
                     unchangedline = False
-                    # Collect all sliders that occur before the currently processing timing point and after the previously processed timing point, and make their timing points
-                    matchingsliders = [s for s in sliders if (s[9] != 0 and (s[2] > prevtimingpoint[0] and s[2] < int(match.group(1))))]
+                    # Collect all sliders that occur after the last processed timing point, and make their timing points
+                    matchingsliders = [s for s in sliders if s[9] != 0 and s[2] > prevtimingpoint[0]]
                     rest = re.sub(r"^(\d+),(\d+(\.\d+)?),(\d+),(\d+),(\d+),(\d+),1,", "", line)
                     if matchingsliders:
                         for s in matchingsliders:
-                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], s[9], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
-                            FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
-                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]+1, 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == prevtimingpoint[0])[0][-1]][1]*prevtimingpoint[1]/-100), prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
-                            FDW.write("%d,%.15E,%s,%s,%s,%s,0,%s" % (s[2]+1, prevtimingpoint[1], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            # We move the slider back one ms so that timing for the rest of the song doesn't get offset by +1ms
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]-1, s[9], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2]-1, prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == prevtimingpoint[0])[0][-1]][1]*prevtimingpoint[1]/-100), prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,0,%s" % (s[2], prevtimingpoint[1], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                    FDW.write("\n")
+                
+                # Uninherited timing point matching
+                match = re.search(r"^(\d+),(\d+(\.\d+)?(E(\+|-)\d+)?),(\d+),(\d+),(\d+),(\d+),1,", line)
+                if match and insideTPts:
+                    unchangedline = False
+                    # Collect all sliders that occur before the currently processing timing point and after the previously processed timing point, and make their timing points
+                    matchingsliders = [s for s in sliders if (s[9] != 0 and (s[2] > prevtimingpoint[0] and s[2] < int(match.group(1))))]
+                    rest = re.sub(r"^(\d+),(\d+(\.\d+)?(E(\+|-)\d+)?),(\d+),(\d+),(\d+),(\d+),1,", "", line)
+                    if matchingsliders:
+                        for s in matchingsliders:
+                            # We move the slider back one ms so that timing for the rest of the song doesn't get offset by +1ms
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]-1, s[9], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2]-1, prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == prevtimingpoint[0])[0][-1]][1]*prevtimingpoint[1]/-100), prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,0,%s" % (s[2], prevtimingpoint[1], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
                     
                     # Override uninherited timing point if it occurs at the same time as the sliders' timing points
                     matchingsliders = [s for s in sliders if (s[9] != 0 and s[2] == int(match.group(1)))]
                     if matchingsliders:
                         s = matchingsliders[0]
-                        FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], s[9], match.group(4), match.group(5), match.group(6), match.group(7), rest))
-                        FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2], match.group(4), match.group(5), match.group(6), match.group(7), rest))
-                        FDW.write("%d,%s,%s,%s,%s,%s,1,%s" % (s[2]+1, match.group(2), match.group(4), match.group(5), match.group(6), match.group(7), rest))
+                        # We move the slider back one ms so that timing for the rest of the song doesn't get offset by +1ms
+                        FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]-1, s[9], match.group(6), match.group(7), match.group(8), match.group(9), rest))
+                        FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2]-1, match.group(6), match.group(7), match.group(8), match.group(9), rest))
+                        FDW.write("%d,%s,%s,%s,%s,%s,1,%s" % (s[2], match.group(2), match.group(6), match.group(7), match.group(8), match.group(9), rest))
                     else:
                         FDW.write(line)
                     
                     # prevtimingpoint = (time, inherited timing point beatLength, meter, sampleSet, sampleIndex, volume, effects)
                     # Inherited timing point beatLength is -100 because it is treated as the default (which is -100) until an inherited timing point sets it.
-                    prevtimingpoint = (int(match.group(1)), -100, match.group(4), match.group(5), match.group(6), match.group(7), rest)
+                    prevtimingpoint = (int(match.group(1)), -100, match.group(6), match.group(7), match.group(8), match.group(9), rest)
                 
                 # Inherited timing point matching
-                match = re.search(r"^(\d+),(-?\d+(\.\d+)?),(\d+),(\d+),(\d+),(\d+),0,", line)
-                if match and pastTPts and not pastClrs:
+                match = re.search(r"^(\d+),(-?\d+(\.\d+)?(E(\+|-)\d+)?),(\d+),(\d+),(\d+),(\d+),0,", line)
+                if match and insideTPts:
                     unchangedline = False
                     # Collect all sliders that occur before the currently processing timing point and after the previously processed timing point, and make their timing points
                     matchingsliders = [s for s in sliders if (s[9] != 0 and (s[2] > prevtimingpoint[0] and s[2] < int(match.group(1))))]
-                    rest = re.sub(r"^(\d+),(-?\d+(\.\d+)?),(\d+),(\d+),(\d+),(\d+),0,", "", line)
+                    rest = re.sub(r"^(\d+),(-?\d+(\.\d+)?(E(\+|-)\d+)?),(\d+),(\d+),(\d+),(\d+),0,", "", line)
                     if matchingsliders:
                         for s in matchingsliders:
-                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], s[9], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
-                            FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
-                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]+1, 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == prevtimingpoint[0])[0][-1]][1]*prevtimingpoint[1]/-100), prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
-                            FDW.write("%d,%.15E,%s,%s,%s,%s,0,%s" % (s[2]+1, prevtimingpoint[1], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            # We move the slider back one ms so that timing for the rest of the song doesn't get offset by +1ms
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]-1, s[9], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2]-1, prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == prevtimingpoint[0])[0][-1]][1]*prevtimingpoint[1]/-100), prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
+                            FDW.write("%d,%.15E,%s,%s,%s,%s,0,%s" % (s[2], prevtimingpoint[1], prevtimingpoint[2], prevtimingpoint[3], prevtimingpoint[4], prevtimingpoint[5], prevtimingpoint[6]))
                     
                     # Override inherited timing point if it occurs at the same time as the sliders' timing points
                     matchingsliders = [x for x in sliders if (x[9] != 0 and x[2] == int(match.group(1)))]
                     if matchingsliders:
                         s = matchingsliders[0]
-                        FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], s[9], match.group(4), match.group(5), match.group(6), match.group(7), rest))
-                        FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2], match.group(4), match.group(5), match.group(6), match.group(7), rest))
-                        FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]+1, 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == s[2])[0][-1]][1]*float(match.group(2))/-100), match.group(4), match.group(5), match.group(6), match.group(7), rest))
-                        FDW.write("%d,%s,%s,%s,%s,%s,0,%s" % (s[2]+1, match.group(2), match.group(4), match.group(5), match.group(6), match.group(7), rest))
+                        # We move the slider back one ms so that timing for the rest of the song doesn't get offset by +1ms
+                        FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2]-1, s[9], match.group(6), match.group(7), match.group(8), match.group(9), rest))
+                        FDW.write("%d,NaN,%s,%s,%s,%s,0,%s" % (s[2]-1, match.group(6), match.group(7), match.group(8), match.group(9), rest))
+                        FDW.write("%d,%.15E,%s,%s,%s,%s,1,%s" % (s[2], 60000/(bpmpts[numpy.where(numpy.array(bpmpts)[:,0] == s[2])[0][-1]][1]*float(match.group(2))/-100), match.group(6), match.group(7), match.group(8), match.group(9), rest))
+                        FDW.write("%d,%s,%s,%s,%s,%s,0,%s" % (s[2], match.group(2), match.group(6), match.group(7), match.group(8), match.group(9), rest))
                     else:
                         FDW.write(line)
                     
                     # prevtimingpoint = (time, inherited timing point beatLength, meter, sampleSet, sampleIndex, volume, effects)
-                    prevtimingpoint = (int(match.group(1)), float(match.group(2)), match.group(4), match.group(5), match.group(6), match.group(7), rest)
+                    prevtimingpoint = (int(match.group(1)), float(match.group(2)), match.group(6), match.group(7), match.group(8), match.group(9), rest)
                 
                 # Slider HitObject matching
                 match = re.search(r"^(-?\d+),(-?\d+),(\d+),(\d+),(\d+),(B|P|L)(\|(-?\d+:-?\d+))*,(\d+),(\d+(\.\d+)?)", line)
@@ -158,7 +169,8 @@ def main():
                     matchingsliders = [x for x in sliders if (x[9] != 0 and x[2] == int(match.group(3)))]
                     if matchingsliders:
                         s = matchingsliders[0]
-                        FDW.write("%d,%d,%d,%d,%d,L|%s,%d,%f%s" % (s[0], s[1], s[2], s[3], s[4], "|".join(":".join(str(y) for y in x) for x in s[5]), s[6], s[7], s[8]))
+                        # We move the slider back one ms so that timing for the rest of the song doesn't get offset by +1ms
+                        FDW.write("%d,%d,%d,%d,%d,L|%s,%d,%f%s" % (s[0], s[1], s[2]-1, s[3], s[4], "|".join(":".join(str(y) for y in x) for x in s[5]), s[6], s[7], s[8]))
                     else:
                         FDW.write(line)
                         
@@ -198,10 +210,28 @@ def processSlider(bpm, gsv, xpos, ypos, time, objtype, hitSound, sliderType, pos
     ypoints = []
     tlen = round(1000*length/(5/3*bpm*gsv))
     
-    for i in range(0, tlen+1):
-        pt = sliderpath.PositionAt(i/tlen)
-        xpoints.append(pt[0])
-        ypoints.append(pt[1])
+    # sliderpath.PositionAt returns the loaction of the sliderball pre-snap. We want post-snap so this requires some additional structure.
+    # First we calculate how many ms each linear segment is used for
+    mspersegment = [0]*len(sliderpath.cumulativeLength)
+    for i in range(0,tlen+1):
+        idx = sliderpath.indexOfDistance(sliderpath.progressToDistance(i/tlen))
+        if idx < 0:
+            idx = 0
+        if idx > len(mspersegment):
+            idx = len(mspersegment)-1
+        mspersegment[idx] += 1
+    # Edge case handled separately; if the index of the progress to distance is 0 then we consider it to simply be the first point.
+    for j in range(0,mspersegment[0]):
+        pt = sliderpath.calculatedPath[0]
+        xpoints.append(round(pt[0]))
+        ypoints.append(round(pt[1]))
+    for i in range(1,len(mspersegment)):
+        p0 = sliderpath.calculatedPath[i-1]
+        p1 = sliderpath.calculatedPath[i]
+        for j in range(1,mspersegment[i]+1):
+            pt = p0+(p1-p0)*j/mspersegment[i]
+            xpoints.append(round(pt[0]))
+            ypoints.append(round(pt[1]))
     
     # Define newposlist
     newposlist = []
