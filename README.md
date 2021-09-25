@@ -11,13 +11,4 @@ Thanks to Karoo for helping me understand how slider distortion works!
 
 If you'd like an exe instead, you can download it here: https://drive.google.com/file/d/15xKmuqlz6slI-f75KtUnZmoKXuiwgtyD/view?usp=sharing
 
-# Known Bugs
-No known bugs at this time.
-
-# TODO:
-1. The sliderball movement only appears smooth when the anchor points being snapped to are placed along a vector perpendicular to the direction of the snapping. This is
-theoretically fixable but will require significant changes to the creation process, and I'm not prepared to do that right now. I'd like to have this done by the end of the summer.
-
-2. Karoo mentioned to me that, since we can only place the sliderball on lattice points, it may not be worth putting the sliderball on a lattice point if it's only going to be there for 1ms. I'm not sure what change would make this look best (do I move the sliderball to the next calculated lattice point if it's just calculated to be on some lattice point for 1ms? Is 1ms a reasonable cutoff point, or would something like 5ms make more sense?) and I'll consider doing this after I finish (1) above and see how that looks.
-
-3. Using HR ruins the effect. The behavior for distortion is only well understood for sliders whose bounding box is located in the first quadrant of the grid (flipped vertically, as positive y is down). Theoretically, it should be possible for a slider to remain invisible even when it is flipped vertically. However, this requires a bit of research into how the location of the bounding box can affect slider distortion, and cannot be implemented with only current knowledge. There is no timeline for this change.
+# This will be integrated into the next release of Mapping Tools. The script version in this repository is no longer supported.
